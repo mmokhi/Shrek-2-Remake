@@ -139,13 +139,23 @@ jobs:
               export UE_LocalDerivedDataCache=/project/.ue-ddc
 
               # Only the maps that survived the ShrekLevels submodule going missing.
+              rc=0
               "$UE/Engine/Build/BatchFiles/RunUAT.sh" BuildCookRun \
                 -project=/project/Shrek2Remake.uproject \
                 -platform=Linux -clientconfig="$CONFIG" \
                 -build -cook -stage -pak -archive \
                 -archivedirectory=/project/out \
                 -map=/Game/Levels/MainMenu+/Game/Levels/PauseMenu+/Game/Levels/Swamp/L_Swamp_01+/Game/Levels/TestArena \
-                -unattended -noP4 -nullrhi -utf8output -nodebuginfo
+                -unattended -noP4 -nullrhi -utf8output -nodebuginfo || rc=$?
+
+              # UAT and the cook commandlet log INSIDE the image, off the mounted
+              # volume, so a failure is otherwise undiagnosable from the runner.
+              mkdir -p /project/uat-logs
+              cp -r "$UE/Engine/Programs/AutomationTool/Saved" /project/uat-logs/automationtool 2>/dev/null || true
+              cp -r "$HOME/Library/Logs" /project/uat-logs/userlogs 2>/dev/null || true
+              cp -r /project/Saved/Logs /project/uat-logs/projectlogs 2>/dev/null || true
+              find /project/uat-logs -type f | head -40
+              exit $rc
             '
 
       - name: Report output size
@@ -167,6 +177,7 @@ jobs:
         with:
           name: unreal-logs
           path: |
+            uat-logs/**
             Saved/Logs/**
             out/**/*.log
           retention-days: 7
