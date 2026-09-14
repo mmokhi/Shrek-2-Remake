@@ -81,15 +81,29 @@ jobs:
             -e CONFIG="${{ inputs.configuration || 'Development' }}" \
             ghcr.io/epicgames/unreal-engine:dev-slim-5.7 \
             bash -euo pipefail -c '
-              UAT="$(find / -maxdepth 6 -path "*/Engine/Build/BatchFiles/RunUAT.sh" 2>/dev/null | head -1)"
-              [ -n "$UAT" ] || { echo "::error::RunUAT.sh not found in image"; exit 1; }
-              UE="${UAT%/Engine/Build/BatchFiles/RunUAT.sh}"
+              # Locate the engine: known layouts first, then a deep search.
+              UE=""
+              for c in "${UE_ROOT:-}" /home/ue4/UnrealEngine /home/ue5/UnrealEngine \
+                       /opt/UnrealEngine /UnrealEngine /engine; do
+                [ -n "$c" ] && [ -f "$c/Engine/Build/BatchFiles/RunUAT.sh" ] && { UE="$c"; break; }
+              done
+              if [ -z "$UE" ]; then
+                UAT="$(find / -maxdepth 9 -name RunUAT.sh -path "*/Engine/Build/BatchFiles/*" 2>/dev/null | head -1)"
+                [ -n "$UAT" ] && UE="${UAT%/Engine/Build/BatchFiles/RunUAT.sh}"
+              fi
+              if [ -z "$UE" ]; then
+                echo "::error::RunUAT.sh not found. Image layout follows:"
+                ls -la / /home 2>/dev/null
+                find / -maxdepth 4 -name "Engine" -type d 2>/dev/null | head
+                exit 1
+              fi
               echo "Engine root: $UE"
+              "$UE/Engine/Build/BatchFiles/Linux/Build.sh" -version 2>/dev/null | head -3 || true
 
               export UE_LocalDerivedDataCache=/project/.ue-ddc
 
               # Only the maps that survived the ShrekLevels submodule going missing.
-              "$UAT" BuildCookRun \
+              "$UE/Engine/Build/BatchFiles/RunUAT.sh" BuildCookRun \
                 -project=/project/Shrek2Remake.uproject \
                 -platform=Linux -clientconfig="$CONFIG" \
                 -build -cook -stage -pak -archive \
