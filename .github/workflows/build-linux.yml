@@ -98,11 +98,25 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$PWD/.ue-ddc" "$PWD/out"
-          docker run --rm --user root \
+          IMAGE=ghcr.io/epicgames/unreal-engine:dev-slim-5.7
+
+          # UnrealEditor refuses to run as root ("Refusing to run with the root
+          # privileges."), so the cook must run as the image's own user. Hand
+          # the mounted workspace to that uid first, and take it back after so
+          # the artifact upload can still read it.
+          UE_UID=$(docker run --rm "$IMAGE" id -u)
+          UE_GID=$(docker run --rm "$IMAGE" id -g)
+          echo "container user: $UE_UID:$UE_GID"
+          sudo chown -R "$UE_UID:$UE_GID" "$PWD"
+          trap 'sudo chown -R "$(id -u):$(id -g)" "$PWD" || true' EXIT
+
+          docker run --rm --user "$UE_UID:$UE_GID" \
             -v "$PWD":/project \
+            -e HOME=/tmp/uehome \
             -e CONFIG="${{ inputs.configuration || 'Development' }}" \
-            ghcr.io/epicgames/unreal-engine:dev-slim-5.7 \
+            "$IMAGE" \
             bash -euo pipefail -c '
+              mkdir -p /tmp/uehome
               # Locate the engine: known layouts first, then a deep search.
               UE=""
               for c in "${UE_ROOT:-}" /home/ue4/UnrealEngine /home/ue5/UnrealEngine \
