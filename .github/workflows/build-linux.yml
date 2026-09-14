@@ -144,7 +144,7 @@ jobs:
                 -platform=Linux -clientconfig="$CONFIG" \
                 -build -cook -stage -pak -archive \
                 -archivedirectory=/project/out \
-                -map=/Game/Levels/MainMenu+/Game/Levels/Swamp/L_Swamp_01+/Game/Levels/TestArena \
+                -map=/Game/Levels/MainMenu+/Game/Levels/PauseMenu+/Game/Levels/Swamp/L_Swamp_01+/Game/Levels/TestArena \
                 -unattended -noP4 -nullrhi -utf8output -nodebuginfo
             '
 
