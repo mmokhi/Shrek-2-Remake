@@ -1,0 +1,15 @@
+diff --git a/Source/InventorySystem/Public/Slate/STetrisGridPanel.h b/Source/InventorySystem/Public/Slate/STetrisGridPanel.h
+index 73a0919..b60507f 100644
+--- a/Source/InventorySystem/Public/Slate/STetrisGridPanel.h
++++ b/Source/InventorySystem/Public/Slate/STetrisGridPanel.h
+@@ -51,9 +51,9 @@ public:
+ 			: TBasicLayoutWidgetSlot<FSlot>(HAlign_Fill, VAlign_Fill)
+ 			, ColumnParam(Column)
+ 			, RowParam(Row)
++			, LayerParam(InLayer)
+ 			, SlotSizeParam(SlotSize)
+ 			, FormParam(Form)
+-			, LayerParam(InLayer)
+ 		{
+ 		}
+ 

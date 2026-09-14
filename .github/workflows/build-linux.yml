@@ -11,6 +11,10 @@ on:
   push:
     branches: [main]
 
+concurrency:
+  group: build-linux-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -53,6 +57,24 @@ jobs:
             test -n "$(ls -A "Plugins/$m" | grep -v '^\.git$')" || { echo "::error::Plugins/$m empty"; exit 1; }
           done
           find Plugins -maxdepth 2 -name '*.uplugin' | sort
+
+      # Upstream plugins are developed on MSVC; clang's -Werror rejects things
+      # MSVC waves through. Patches are against the pinned submodule commits and
+      # should be dropped once fixed upstream.
+      - name: Patch plugins for clang
+        run: |
+          set -euo pipefail
+          apply() {
+            local sub="$1" patch="$2"
+            if git -C "$sub" apply --check "$patch" 2>/dev/null; then
+              git -C "$sub" apply "$patch"; echo "applied $(basename "$patch") to $sub"
+            elif git -C "$sub" apply --reverse --check "$patch" 2>/dev/null; then
+              echo "$(basename "$patch") already applied upstream - skipping"
+            else
+              echo "::error::$(basename "$patch") does not apply to $sub"; exit 1
+            fi
+          }
+          apply Plugins/InventorySystem "$PWD/.github/patches/inventorysystem-reorder-ctor.patch"
 
       # Shader DDC dominates runtime. Caching it keeps reruns far under the
       # 6h job cap and lets a timed-out run resume instead of starting over.
