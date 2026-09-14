@@ -1,0 +1,123 @@
+name: Build Linux (x86_64)
+
+on:
+  workflow_dispatch:
+    inputs:
+      configuration:
+        description: "Build configuration"
+        default: Development
+        type: choice
+        options: [Development, Shipping]
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350   # hosted-runner hard cap is 360
+
+    steps:
+      # Must run BEFORE the engine image is pulled, which is why this job does
+      # not use a job-level `container:` -- that would pull before step one.
+      - name: Reclaim disk space
+        uses: jlumbroso/free-disk-space@v1.3.1
+        with:
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
+      - name: Report available space
+        run: df -h /
+
+      # submodules: recursive would abort -- Plugins/ShrekLevels 404s upstream.
+      - name: Checkout (no submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+          fetch-depth: 1
+
+      - name: Check out the submodules that still exist
+        run: |
+          set -euo pipefail
+          git submodule deinit -f Plugins/ShrekLevels 2>/dev/null || true
+          for m in ClimbingSystem CombatSystem GameInstanceServices InventorySystem UIGoodies; do
+            git submodule update --init --force "Plugins/$m"
+          done
+          # git aborts mid-update on a dead submodule, leaving trees unpopulated
+          for m in ClimbingSystem CombatSystem GameInstanceServices InventorySystem UIGoodies; do
+            git -C "Plugins/$m" checkout --force HEAD
+            test -n "$(ls -A "Plugins/$m" | grep -v '^\.git$')" || { echo "::error::Plugins/$m empty"; exit 1; }
+          done
+          find Plugins -maxdepth 2 -name '*.uplugin' | sort
+
+      # Shader DDC dominates runtime. Caching it keeps reruns far under the
+      # 6h job cap and lets a timed-out run resume instead of starting over.
+      - name: Restore derived data cache
+        uses: actions/cache@v4
+        with:
+          path: .ue-ddc
+          key: ue-ddc-${{ runner.os }}-${{ hashFiles('Content/**') }}
+          restore-keys: |
+            ue-ddc-${{ runner.os }}-
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Pull Unreal Engine 5.7
+        run: |
+          docker pull ghcr.io/epicgames/unreal-engine:dev-slim-5.7
+          df -h /
+
+      - name: Build, cook and package
+        run: |
+          set -euo pipefail
+          mkdir -p "$PWD/.ue-ddc" "$PWD/out"
+          docker run --rm --user root \
+            -v "$PWD":/project \
+            -e CONFIG="${{ inputs.configuration || 'Development' }}" \
+            ghcr.io/epicgames/unreal-engine:dev-slim-5.7 \
+            bash -euo pipefail -c '
+              UAT="$(find / -maxdepth 6 -path "*/Engine/Build/BatchFiles/RunUAT.sh" 2>/dev/null | head -1)"
+              [ -n "$UAT" ] || { echo "::error::RunUAT.sh not found in image"; exit 1; }
+              UE="${UAT%/Engine/Build/BatchFiles/RunUAT.sh}"
+              echo "Engine root: $UE"
+
+              export UE_LocalDerivedDataCache=/project/.ue-ddc
+
+              # Only the maps that survived the ShrekLevels submodule going missing.
+              "$UAT" BuildCookRun \
+                -project=/project/Shrek2Remake.uproject \
+                -platform=Linux -clientconfig="$CONFIG" \
+                -build -cook -stage -pak -archive \
+                -archivedirectory=/project/out \
+                -map=/Game/Levels/MainMenu+/Game/Levels/Swamp/L_Swamp_01+/Game/Levels/TestArena \
+                -unattended -noP4 -nullrhi -utf8output -nodebuginfo
+            '
+
+      - name: Report output size
+        if: always()
+        run: du -sh out .ue-ddc 2>/dev/null || true; df -h /
+
+      - name: Upload packaged build
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Shrek2Remake-Linux-${{ inputs.configuration || 'Development' }}
+          path: out/
+          retention-days: 14
+          compression-level: 1
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unreal-logs
+          path: |
+            Saved/Logs/**
+            out/**/*.log
+          retention-days: 7
+          if-no-files-found: ignore
