@@ -89,16 +89,31 @@ jobs:
       - name: Log in to GHCR
         run: echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
-      - name: Pull Unreal Engine 5.7
+      - name: Pull Unreal Engine (5.8.x — fixes the Vulkan semaphore-ordering bug)
         run: |
-          docker pull ghcr.io/epicgames/unreal-engine:dev-slim-5.7
+          set -euo pipefail
+          # UE 5.7's Vulkan RHI has a binary-semaphore ordering bug that hangs
+          # the GPU on Linux (all vendors); fixed in 5.8.1. Prefer the 5.8.1
+          # tag, fall back to the 5.8 rolling tag, then bail if neither exists.
+          RESOLVED=""
+          for tag in dev-slim-5.8.1 dev-slim-5.8; do
+            if docker manifest inspect "ghcr.io/epicgames/unreal-engine:$tag" >/dev/null 2>&1; then
+              RESOLVED="ghcr.io/epicgames/unreal-engine:$tag"; break
+            fi
+          done
+          if [ -z "$RESOLVED" ]; then
+            echo "::error::No 5.8.x engine container found (tried dev-slim-5.8.1, dev-slim-5.8)"; exit 1
+          fi
+          echo "UE_IMAGE=$RESOLVED" >> "$GITHUB_ENV"
+          echo "Using engine image: $RESOLVED"
+          docker pull "$RESOLVED"
           df -h /
 
       - name: Build, cook and package
         run: |
           set -euo pipefail
           mkdir -p "$PWD/.ue-ddc" "$PWD/out"
-          IMAGE=ghcr.io/epicgames/unreal-engine:dev-slim-5.7
+          IMAGE="${UE_IMAGE:?engine image was not resolved in the Pull step}"
 
           # UnrealEditor refuses to run as root ("Refusing to run with the root
           # privileges."), so the cook must run as the image's own user. Hand
