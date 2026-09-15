@@ -83,9 +83,12 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .ue-ddc
-          key: ue-ddc-${{ runner.os }}-${{ hashFiles('Content/**') }}
+          # nobindless2 = cache epoch; bump it whenever a Config change alters
+          # shader permutations (e.g. disabling bindless) so stale shaders from
+          # the old config aren't restored.
+          key: ue-ddc-nobindless-${{ runner.os }}-${{ hashFiles('Content/**', 'Config/**') }}
           restore-keys: |
-            ue-ddc-${{ runner.os }}-
+            ue-ddc-nobindless-${{ runner.os }}-
 
       - name: Log in to GHCR
         run: echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
