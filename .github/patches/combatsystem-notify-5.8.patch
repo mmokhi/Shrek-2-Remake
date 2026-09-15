@@ -1,0 +1,26 @@
+diff --git a/Source/CombatSystem/Private/AnimNotifies/AnimNotifyState_ComboSection.cpp b/Source/CombatSystem/Private/AnimNotifies/AnimNotifyState_ComboSection.cpp
+index aca2334..fb7353d 100644
+--- a/Source/CombatSystem/Private/AnimNotifies/AnimNotifyState_ComboSection.cpp
++++ b/Source/CombatSystem/Private/AnimNotifies/AnimNotifyState_ComboSection.cpp
+@@ -4,7 +4,7 @@
+ #include "AnimNotifies/AnimNotify_ComboSection.h"
+ #include "CombatComponent.h"
+ 
+-void UAnimNotify_ComboSection::Notify(USkeletalMeshComponent* MeshComp, UAnimSequenceBase* Animation)
++void UAnimNotify_ComboSection::Notify(USkeletalMeshComponent* MeshComp, UAnimSequenceBase* Animation, const FAnimNotifyEventReference& EventReference)
+ {
+     UCombatComponent* CombatComponent = Cast<UCombatComponent>(MeshComp->GetOwner()->GetComponentByClass(UCombatComponent::StaticClass()));
+     if (IsValid(CombatComponent))
+diff --git a/Source/CombatSystem/Public/AnimNotifies/AnimNotify_ComboSection.h b/Source/CombatSystem/Public/AnimNotifies/AnimNotify_ComboSection.h
+index 91a7d0e..83a52b6 100644
+--- a/Source/CombatSystem/Public/AnimNotifies/AnimNotify_ComboSection.h
++++ b/Source/CombatSystem/Public/AnimNotifies/AnimNotify_ComboSection.h
+@@ -21,7 +21,7 @@ public:
+ 	TMap<FName, FGameplayTagContainer> GetNextAttackSections() { return NextAttackSections; }
+ 
+ protected:
+-	virtual void Notify(USkeletalMeshComponent* MeshComp, UAnimSequenceBase* Animation) override;
++	virtual void Notify(USkeletalMeshComponent* MeshComp, UAnimSequenceBase* Animation, const FAnimNotifyEventReference& EventReference) override;
+ 
+ protected:
+ 	UPROPERTY(EditAnywhere, BlueprintReadOnly)

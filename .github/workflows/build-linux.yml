@@ -75,6 +75,7 @@ jobs:
             fi
           }
           apply Plugins/InventorySystem "$PWD/.github/patches/inventorysystem-reorder-ctor.patch"
+          apply Plugins/CombatSystem   "$PWD/.github/patches/combatsystem-notify-5.8.patch"
 
       # Shader DDC dominates runtime. Caching it keeps reruns far under the
       # 6h job cap and lets a timed-out run resume instead of starting over.
