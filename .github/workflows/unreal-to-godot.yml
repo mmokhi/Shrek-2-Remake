@@ -1,0 +1,78 @@
+# Exports a level for Godot with vortechU/UnrealToGodot, headless (Tools/unreal_to_godot/export.py).
+# The result is the "unreal-to-godot" artifact, which Shrek-World's tools/fetch.sh downloads.
+name: unreal-to-godot
+on:
+  push:
+    branches: [unreal-to-godot]
+  workflow_dispatch:
+    inputs:
+      level:
+        description: Level to export
+        default: /Game/Levels/Swamp/L_Swamp_01
+
+env:
+  LEVEL: ${{ inputs.level || '/Game/Levels/Swamp/L_Swamp_01' }}
+  IMAGE: ghcr.io/epicgames/unreal-engine:dev-slim-5.8.1
+
+jobs:
+  export:
+    runs-on: ubuntu-latest   # public repo runner: 145 GB disk for the 56 GB engine image
+    timeout-minutes: 350
+    steps:
+      - name: Reclaim disk space
+        uses: jlumbroso/free-disk-space@v1.3.1
+        with: { tool-cache: true, android: true, dotnet: true, haskell: true, large-packages: true, docker-images: true, swap-storage: true }
+
+      - uses: actions/checkout@v4
+        with: { submodules: false, fetch-depth: 1 }
+
+      # As in build-linux.yml (ShrekLevels is gone upstream; two plugins need clang patches), plus UnrealToGodot.
+      - name: Plugins
+        run: |
+          set -euo pipefail
+          for m in ClimbingSystem CombatSystem GameInstanceServices InventorySystem UIGoodies UnrealToGodot; do
+            git submodule update --init --force "Plugins/$m"
+          done
+          git -C Plugins/InventorySystem apply "$PWD/.github/patches/inventorysystem-reorder-ctor.patch"
+          git -C Plugins/CombatSystem apply "$PWD/.github/patches/combatsystem-notify-5.8.patch"
+          jq '.Plugins += [{"Name":"UnrealToGodot","Enabled":true}]' Shrek2Remake.uproject > p.tmp && mv p.tmp Shrek2Remake.uproject
+
+      - name: Restore derived data cache
+        uses: actions/cache@v4
+        with:
+          path: .ue-ddc
+          key: unreal-to-godot-ddc-${{ hashFiles('Content/**', 'Config/**') }}
+          restore-keys: |
+            unreal-to-godot-ddc-
+            ue-ddc-nobindless-${{ runner.os }}-
+
+      - name: Pull engine image
+        run: |
+          echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker pull -q "$IMAGE"
+
+      - name: Build editor and export
+        run: |
+          set -euo pipefail
+          mkdir -p .ue-ddc out
+          sudo chown -R 1000:1000 "$PWD"   # the editor refuses to run as root; the image user is ue4 (1000)
+          trap 'sudo chown -R "$(id -u):$(id -g)" "$PWD"' EXIT
+          docker run --rm --user 1000:1000 -v "$PWD":/project -e HOME=/tmp/uehome \
+            -e UE_LocalDerivedDataCache=/project/.ue-ddc -e LEVEL="$LEVEL" -e OUT=/project/out \
+            "$IMAGE" bash -euo pipefail -c '
+              mkdir -p "$HOME"; UE=/home/ue4/UnrealEngine
+              "$UE/Engine/Build/BatchFiles/Linux/Build.sh" Shrek2RemakeEditor Linux Development -Project=/project/Shrek2Remake.uproject -WaitMutex
+              # The editor exits non-zero whenever it logs errors, including for references to assets the project
+              # lacks (uncommitted *_BuiltData, the private ShrekLevels plugin); summary.json decides success.
+              "$UE/Engine/Binaries/Linux/UnrealEditor-Cmd" /project/Shrek2Remake.uproject -run=pythonscript \
+                -script=/project/Tools/unreal_to_godot/export.py -nullrhi -unattended -nosplash -nopause -stdout \
+                > /project/out/editor.log 2>&1 || true
+              grep -E "unreal-to-godot:|Unreal to Godot|LogPython: Error" /project/out/editor.log | tail -40 || true'
+          python3 -c 'import json,sys; s=json.load(open("out/summary.json")); print(s); sys.exit(0 if s["layout"] and not s["failed"] else 1)'
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: unreal-to-godot
+          path: out/
+          compression-level: 1

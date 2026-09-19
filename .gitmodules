@@ -16,3 +16,6 @@
 [submodule "Plugins/ShrekLevels"]
 	path = Plugins/ShrekLevels
 	url = https://github.com/Kaboms/Shrek-2-Remake-Levels.git
+[submodule "Plugins/UnrealToGodot"]
+	path = Plugins/UnrealToGodot
+	url = https://github.com/vortechU/UnrealToGodot.git
