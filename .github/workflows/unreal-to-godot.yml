@@ -51,6 +51,18 @@ jobs:
           echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
           docker pull -q "$IMAGE"
 
+      # The runners have no GPU, and the tool needs a renderer (its terrain export draws to a render target, which
+      # crashes a -nullrhi editor). Mesa's lavapipe is a Vulkan driver running on the CPU.
+      - name: Add a software GPU (Mesa lavapipe) to the engine image
+        run: |
+          docker build -q -t ue-lavapipe - <<EOF
+          FROM $IMAGE
+          USER root
+          RUN apt-get update && apt-get install -y --no-install-recommends mesa-vulkan-drivers vulkan-tools && rm -rf /var/lib/apt/lists/*
+          USER ue4
+          EOF
+          docker run --rm ue-lavapipe vulkaninfo --summary 2>&1 | grep -E "apiVersion|deviceName|driverName" || true
+
       - name: Build editor and export
         run: |
           set -euo pipefail
@@ -59,13 +71,13 @@ jobs:
           trap 'sudo chown -R "$(id -u):$(id -g)" "$PWD"' EXIT
           docker run --rm --user 1000:1000 -v "$PWD":/project -e HOME=/tmp/uehome \
             -e UE_LocalDerivedDataCache=/project/.ue-ddc -e LEVEL="$LEVEL" -e OUT=/project/out \
-            "$IMAGE" bash -euo pipefail -c '
+            ue-lavapipe bash -euo pipefail -c '
               mkdir -p "$HOME"; UE=/home/ue4/UnrealEngine
               "$UE/Engine/Build/BatchFiles/Linux/Build.sh" Shrek2RemakeEditor Linux Development -Project=/project/Shrek2Remake.uproject -WaitMutex
               # The editor exits non-zero whenever it logs errors, including for references to assets the project
               # lacks (uncommitted *_BuiltData, the private ShrekLevels plugin); summary.json decides success.
               "$UE/Engine/Binaries/Linux/UnrealEditor-Cmd" /project/Shrek2Remake.uproject -run=pythonscript \
-                -script=/project/Tools/unreal_to_godot/export.py -nullrhi -unattended -nosplash -nopause -stdout \
+                -script=/project/Tools/unreal_to_godot/export.py -vulkan -RenderOffScreen -unattended -nosplash -nopause -stdout \
                 > /project/out/editor.log 2>&1 || true
               grep -E "unreal-to-godot:|Unreal to Godot|LogPython: Error" /project/out/editor.log | tail -40 || true'
           python3 -c 'import json,sys; s=json.load(open("out/summary.json")); print(s); sys.exit(0 if s["layout"] and not s["failed"] else 1)'
