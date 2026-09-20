@@ -89,7 +89,7 @@ jobs:
               # lacks (uncommitted *_BuiltData, the private ShrekLevels plugin); summary.json decides success.
               /home/ue4/UnrealEngine/Engine/Binaries/Linux/UnrealEditor-Cmd /project/Shrek2Remake.uproject \
                 -run=pythonscript -script=/project/Tools/unreal_to_godot/export.py \
-                -vulkan -RenderOffScreen -unattended -nosplash -nopause -stdout \
+                -AllowCommandletRendering -vulkan -RenderOffScreen -unattended -nosplash -nopause -stdout \
                 > /project/out/editor.log 2>&1 || true
               grep -E "unreal-to-godot:|Unreal to Godot|LogPython: Error" /project/out/editor.log | tail -40 || true'
           python3 -c 'import json,sys; s=json.load(open("out/summary.json")); print(s); sys.exit(0 if s["layout"] and not s["failed"] else 1)'
