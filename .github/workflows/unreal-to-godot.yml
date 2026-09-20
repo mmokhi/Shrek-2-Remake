@@ -150,5 +150,7 @@ jobs:
         with:
           name: godot-project
           # .godot included: it is Godot's import cache (~130 MB), so the project opens without re-importing.
+          # upload-artifact leaves hidden files out unless told otherwise, and .godot is one.
+          include-hidden-files: true
           path: project/
           compression-level: 1
