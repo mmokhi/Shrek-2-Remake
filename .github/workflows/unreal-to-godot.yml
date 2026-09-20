@@ -149,7 +149,6 @@ jobs:
         if: always()
         with:
           name: godot-project
-          path: |
-            project/
-            !project/.godot
+          # .godot included: it is Godot's import cache (~130 MB), so the project opens without re-importing.
+          path: project/
           compression-level: 1
