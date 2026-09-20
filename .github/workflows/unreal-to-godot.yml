@@ -11,6 +11,7 @@ on:
         default: /Game/Levels/Swamp/L_Swamp_01
 
 env:
+  GODOT: 4.7.2-stable
   LEVEL: ${{ inputs.level || '/Game/Levels/Swamp/L_Swamp_01' }}
   IMAGE: ghcr.io/epicgames/unreal-engine:dev-slim-5.8.1
 
@@ -98,3 +99,57 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with: { name: editor-log, path: out/editor.log.gz }
+
+  # The exported level, imported into a ready-to-open Godot project. Godot's own importer addon is an
+  # EditorScript, which cannot be run from the command line, so the import runs from an editor plugin
+  # (Tools/godot_project/addons/shrek_import) in a headless editor.
+  godot-project:
+    needs: export
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with: { submodules: false, fetch-depth: 1 }
+      - name: The exporter (for its Godot importer addon)
+        run: git submodule update --init --force --depth 1 Plugins/UnrealToGodot
+
+      - uses: actions/download-artifact@v4
+        with: { name: unreal-to-godot, path: export }
+
+      - name: Assemble the project
+        run: |
+          set -euo pipefail
+          cp -r Tools/godot_project project
+          cp -r Plugins/UnrealToGodot/addons/unreal_importer project/addons/
+          mv export project/unreal
+          rm -f project/unreal/editor.log
+
+      - name: Godot ${{ env.GODOT }}
+        run: |
+          set -euo pipefail
+          curl -sSLo godot.zip "https://github.com/godotengine/godot/releases/download/$GODOT/Godot_v${GODOT}_linux.x86_64.zip"
+          unzip -q godot.zip && mv Godot_v${GODOT}_linux.x86_64 /usr/local/bin/godot && chmod +x /usr/local/bin/godot
+          godot --version
+
+      - name: Import the assets
+        # Twice: the second pass picks up what the first one's imports made available.
+        run: |
+          godot --headless --path project --import 2>&1 | grep -vE "^$" | tail -5
+          godot --headless --path project --import 2>&1 | grep -vE "^$" | tail -5
+
+      - name: Build the level
+        env: { SHREK_IMPORT: "1" }
+        run: |
+          set -euo pipefail
+          godot --headless --editor --path project 2>&1 | tee godot.log | grep -E "shrek_import:|SCRIPT ERROR|^ERROR" | head -40 || true
+          grep -q "shrek_import: res://scenes/.*built" godot.log
+          ls project/scenes
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: godot-project
+          path: |
+            project/
+            !project/.godot
+          compression-level: 1

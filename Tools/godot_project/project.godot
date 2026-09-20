@@ -1,0 +1,20 @@
+; Godot project template for an exported level; CI fills in addons/unreal_importer and unreal/ (see the
+; godot-project job of .github/workflows/unreal-to-godot.yml).
+
+config_version=5
+
+[application]
+
+config/name="Shrek-World"
+config/features=PackedStringArray("4.7")
+
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/unreal_importer/plugin.cfg", "res://addons/shrek_import/plugin.cfg")
+
+[importer_defaults]
+
+; Unreal exports source art (4K); importing it whole exhausts memory. The files stay full size in unreal/textures.
+texture={
+"process/size_limit": 1024
+}
