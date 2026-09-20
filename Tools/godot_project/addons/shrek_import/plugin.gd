@@ -30,6 +30,11 @@ func _import() -> void:
 		get_tree().quit(1)
 		return
 
+	# A saved scene only stores what it owns. The importer puts its materials on the mesh nodes inside each
+	# instanced model, which belong to that model's scene, so packing as-is would drop them and leave the
+	# glTF's own untextured materials. Writing every node into the level keeps them.
+	var textured := _flatten(root, root)
+
 	var scene := PackedScene.new()
 	if scene.pack(root) != OK:
 		printerr("shrek_import: could not pack the scene")
@@ -45,5 +50,23 @@ func _import() -> void:
 	# So the project opens and plays the level straight away.
 	ProjectSettings.set_setting("application/run/main_scene", path)
 	ProjectSettings.save()
-	print("shrek_import: %s built with %d top-level nodes" % [path, root.get_child_count()])
+	print("shrek_import: %s built, %d top-level nodes, %d textured surfaces" % [path, root.get_child_count(), textured])
 	get_tree().quit(0)
+
+
+## Makes every node part of the level scene rather than of an instanced model, and reports how many surfaces
+## carry a texture, which is what the saved scene would lose if the nodes stayed inside their instances.
+func _flatten(node: Node, root: Node) -> int:
+	var textured := 0
+	for child in node.get_children():
+		child.owner = root
+		child.scene_file_path = ""
+		if child is MeshInstance3D and child.mesh != null:
+			for surface in child.mesh.get_surface_count():
+				var material: Material = child.get_surface_override_material(surface)
+				if material == null:
+					material = child.mesh.surface_get_material(surface)
+				if material is BaseMaterial3D and material.albedo_texture != null:
+					textured += 1
+		textured += _flatten(child, root)
+	return textured
