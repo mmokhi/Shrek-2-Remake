@@ -57,10 +57,13 @@ jobs:
           set -euo pipefail
           mkdir -p .ue-ddc out
           sudo chown -R 1000:1000 "$PWD"   # the editor refuses to run as root; the image user is ue4 (1000)
-          docker run --rm --user 1000:1000 -v "$PWD":/project -e HOME=/tmp/uehome "$IMAGE" bash -euo pipefail -c '
+          # -NoUBA: Unreal Build Accelerator runs degraded when /dev/shm is below its 1 GB floor (Docker's default
+          # is 64 MB) and then its compiler processes segfault in a loop, which hangs the build. This target is
+          # ~18 actions, so the accelerator buys nothing; --shm-size keeps it above the floor if it is ever used.
+          docker run --rm --user 1000:1000 --shm-size=2g -v "$PWD":/project -e HOME=/tmp/uehome "$IMAGE" bash -euo pipefail -c '
             mkdir -p "$HOME"
             /home/ue4/UnrealEngine/Engine/Build/BatchFiles/Linux/Build.sh Shrek2RemakeEditor Linux Development \
-              -Project=/project/Shrek2Remake.uproject -WaitMutex'
+              -Project=/project/Shrek2Remake.uproject -WaitMutex -NoUBA'
 
       - name: Export
         timeout-minutes: 240
