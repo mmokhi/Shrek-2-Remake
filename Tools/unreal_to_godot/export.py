@@ -4,6 +4,7 @@ leaves out that this port needs: the player character with its animations, and t
     UnrealEditor-Cmd <project> -run=pythonscript -script=export.py      env: LEVEL (/Game/...), OUT (directory)
 
 Output in OUT: the tool's models/, textures/, terrain/ and layout.json, plus
+    <level>.t3d             what each placed actor overrides, as Unreal text
     animations/<name>.glb   every animation of the player's skeleton (glTF, one per sequence)
     sounds/<package>.wav    every sound the level and the player can play (source audio)
     summary.json            counts, and what failed
@@ -37,7 +38,8 @@ def export_gltf(asset, path):
         raise RuntimeError("glTF export failed")
 
 
-def export_wav(asset, path):
+def run_export_task(asset, path):
+    """Hands the asset to whichever exporter the engine registers for it (.wav for a sound, .t3d for a level)."""
     task = unreal.AssetExportTask()
     task.object, task.filename, task.automated, task.prompt = asset, path, True, False
     if not unreal.Exporter.run_asset_export_task(task):
@@ -78,6 +80,16 @@ summary["meshes_exported"], summary["meshes_failed"] = export_static_meshes_to_g
 summary["layout"] = export_level_to_json.export_level_to_json(
     save_path=f"{OUT}/layout.json", show_dialogs=False, skip_existing_textures=True)
 
+# What each placed actor overrides. The layout above carries placement but no settings, and it skips actors
+# with no mesh, so the interaction handlers and triggers never reach it at all. The engine's own level
+# exporter writes all of them as Unreal text, under the names the .umap stores, and a level stores only what
+# differs from the class defaults, so what lands here is exactly the per-instance configuration
+# (ULevelExporterT3D, EditorExporters.cpp:584-596). One thing it leaves out: it unbinds dynamic delegates
+# before writing (EditorExporters.cpp:717), so per-instance event wiring is not in this file.
+level_text = f"{OUT}/{world.get_name()}.t3d"
+save(world, level_text, run_export_task)
+summary["level_text"] = os.path.getsize(level_text) if os.path.exists(level_text) else 0
+
 # The additions.
 summary["animations"] = summary["sounds"] = 0
 for package in sorted(project_dependencies([LEVEL, pawn_class.get_outer().get_name()])):
@@ -86,7 +98,7 @@ for package in sorted(project_dependencies([LEVEL, pawn_class.get_outer().get_na
         save(asset, f"{OUT}/animations/{asset.get_name()}.glb", export_gltf)
         summary["animations"] += 1
     elif isinstance(asset, unreal.SoundWave):
-        save(asset, f"{OUT}/sounds{package}.wav", export_wav)
+        save(asset, f"{OUT}/sounds{package}.wav", run_export_task)
         summary["sounds"] += 1
 
 with open(f"{OUT}/summary.json", "w") as f:
