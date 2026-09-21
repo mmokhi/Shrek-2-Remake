@@ -6,6 +6,7 @@ leaves out that this port needs: the player character with its animations, and t
 Output in OUT: the tool's models/, textures/, terrain/ and layout.json, plus
     animations/<name>.glb   every animation of the player's skeleton (glTF, one per sequence)
     sounds/<package>.wav    every sound the level and the player can play (source audio)
+    blueprints.json         every Blueprint class the level uses: parent class and the values set on its defaults
     summary.json            counts, and what failed
 """
 import json
@@ -60,6 +61,54 @@ def project_dependencies(roots):
     return seen
 
 
+
+def jsonable(value, depth=0):
+    """An Unreal property value as plain JSON: assets become their package path, structs and containers recurse."""
+    if depth > 4:
+        return str(value)
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    if isinstance(value, (unreal.Name, unreal.Text)):
+        return str(value)
+    if isinstance(value, unreal.Object):
+        return value.get_path_name()
+    if isinstance(value, unreal.Class):
+        return value.get_path_name()
+    if isinstance(value, (unreal.Array, unreal.Set, list, set)):
+        return [jsonable(v, depth + 1) for v in value]
+    if isinstance(value, unreal.Map):
+        return {str(k): jsonable(v, depth + 1) for k, v in value.items()}
+    if isinstance(value, unreal.StructBase):
+        fields = {}
+        for name in dir(value):
+            if name.startswith("_"):
+                continue
+            try:
+                fields[name] = jsonable(value.get_editor_property(name), depth + 1)
+            except Exception:
+                continue
+        return fields or str(value)
+    return str(value)
+
+
+def class_defaults(generated_class):
+    """The values set on a class's default object: the Blueprint's variables, and what it overrides from its parent."""
+    default_object = unreal.get_default_object(generated_class)
+    values = {}
+    for name in dir(default_object):
+        if name.startswith("_"):
+            continue
+        try:
+            value = default_object.get_editor_property(name)
+        except Exception:
+            continue  # not a property, or not readable outside the editor UI
+        if callable(value):
+            continue
+        values[name] = jsonable(value)
+    parent = generated_class.get_super_class()
+    return {"parent": parent.get_path_name() if parent else None, "values": values}
+
+
 world = unreal.EditorLoadingAndSavingUtils.load_map(LEVEL)
 actors = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
 
@@ -80,6 +129,7 @@ summary["layout"] = export_level_to_json.export_level_to_json(
 
 # The additions.
 summary["animations"] = summary["sounds"] = 0
+blueprints = {}
 for package in sorted(project_dependencies([LEVEL, pawn_class.get_outer().get_name()])):
     asset = unreal.EditorAssetLibrary.load_asset(package)
     if isinstance(asset, unreal.AnimSequence) and asset.get_editor_property("skeleton").get_path_name() == skeleton:
@@ -88,6 +138,17 @@ for package in sorted(project_dependencies([LEVEL, pawn_class.get_outer().get_na
     elif isinstance(asset, unreal.SoundWave):
         save(asset, f"{OUT}/sounds{package}.wav", export_wav)
         summary["sounds"] += 1
+    elif isinstance(asset, unreal.Blueprint):
+        # The settings the game gives each class: what a coin is worth, how fast the player runs, ...
+        try:
+            blueprints[package] = class_defaults(unreal.load_class(None, package + "." + asset.get_name() + "_C"))
+        except Exception as e:
+            summary["failed"].append(f"{package}: {e}")
+
+with open(f"{OUT}/blueprints.json", "w") as f:
+    json.dump(blueprints, f, indent=1, sort_keys=True)
+summary["blueprints"] = len(blueprints)
+summary["blueprint_values"] = sum(len(b["values"]) for b in blueprints.values())
 
 with open(f"{OUT}/summary.json", "w") as f:
     json.dump(summary, f, indent=1)
