@@ -100,6 +100,39 @@ jobs:
         if: always()
         with: { name: editor-log, path: out/editor.log.gz }
 
+  # The level read straight off disk, and checked against what the engine exported.
+  #
+  # The engine cannot give us everything: actor GUIDs are a bare UPROPERTY() and so unreadable from Python,
+  # the .t3d exporter unbinds dynamic delegates before writing, and it skips foliage. Tools/umap_reader
+  # parses the .umap itself, which has none of those limits. The two are unrelated code reading unrelated
+  # inputs, so they are compared: every value both carry must agree, or this job fails.
+  raw:
+    needs: export
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with: { submodules: false, fetch-depth: 1 }
+      - name: The .umap reader's parser
+        run: git submodule update --init --force --depth 1 Tools/umap_reader/CUE4Parse
+
+      - uses: actions/download-artifact@v4
+        with: { name: unreal-to-godot, path: export }
+
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '10.0.x' }
+
+      - name: Read the level, then check it against the engine's export
+        run: |
+          set -euo pipefail
+          level="$(basename "$LEVEL")"
+          dotnet run --project Tools/umap_reader -c Release -- . "$level" out/level_raw.json
+          python3 Tools/unreal_to_godot/compare_exports.py out/level_raw.json "export/$level.t3d"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: level-raw, path: out/level_raw.json }
+
   # The exported level, imported into a ready-to-open Godot project. Godot's own importer addon is an
   # EditorScript, which cannot be run from the command line, so the import runs from an editor plugin
   # (Tools/godot_project/addons/shrek_import) in a headless editor.
