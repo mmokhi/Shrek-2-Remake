@@ -5,7 +5,6 @@ leaves out that this port needs: the player character with its animations, and t
 
 Output in OUT: the tool's models/, textures/, terrain/ and layout.json, plus
     <level>.t3d             what each placed actor overrides, as Unreal text
-    objdump.log             the editor log, holding an unfiltered dump of the level's object tree
     animations/<name>.glb   every animation of the player's skeleton (glTF, one per sequence)
     sounds/<package>.wav    every sound the level and the player can play (source audio)
     summary.json            counts, and what failed
@@ -91,14 +90,6 @@ level_text = f"{OUT}/{world.get_name()}.t3d"
 save(world, level_text, run_export_task)
 summary["level_text"] = os.path.getsize(level_text) if os.path.exists(level_text) else 0
 
-# The same graph again, but through the console's `obj dump`, which has no property filter: it walks the
-# level's whole object tree with ExportProperties and includes transient values (UnrealEngine.cpp:10253-10258).
-# Two things the .t3d above cannot give us are in here: the actor GUIDs, which no exporter writes and Python
-# cannot read (bare UPROPERTY), and the event wiring, which the .t3d exporter deliberately unbinds first.
-# It writes to the editor log, so the log is copied out below and parsed afterwards.
-unreal.SystemLibrary.execute_console_command(
-    world, f"obj dump class=World name={world.get_name()} recurse=true")
-
 # The additions.
 summary["animations"] = summary["sounds"] = 0
 for package in sorted(project_dependencies([LEVEL, pawn_class.get_outer().get_name()])):
@@ -109,27 +100,6 @@ for package in sorted(project_dependencies([LEVEL, pawn_class.get_outer().get_na
     elif isinstance(asset, unreal.SoundWave):
         save(asset, f"{OUT}/sounds{package}.wav", run_export_task)
         summary["sounds"] += 1
-
-# The dump went to the log. Take the dump out of it -- from its first marker to the end -- rather than the
-# whole log, which the workflow already ships on its own.
-MARKER = "*** Property dump for object"
-log_dir = unreal.Paths.convert_relative_path_to_full(unreal.Paths.project_log_dir())
-logs = [os.path.join(log_dir, f) for f in os.listdir(log_dir) if f.endswith(".log")] if os.path.isdir(log_dir) else []
-summary["objdump_markers"] = summary["objdump_bytes"] = 0
-if not logs:
-    summary["failed"].append(f"no editor log in {log_dir}")
-else:
-    with open(max(logs, key=os.path.getmtime), "r", errors="replace") as src:
-        text = src.read()
-    start = text.find(MARKER)
-    if start < 0:
-        summary["failed"].append("obj dump wrote nothing to the log")
-    else:
-        dump = text[start:]
-        with open(f"{OUT}/objdump.log", "w") as dst:
-            dst.write(dump)
-        summary["objdump_markers"] = dump.count(MARKER)
-        summary["objdump_bytes"] = len(dump)
 
 with open(f"{OUT}/summary.json", "w") as f:
     json.dump(summary, f, indent=1)
