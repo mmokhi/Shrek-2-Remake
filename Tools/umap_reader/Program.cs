@@ -34,12 +34,15 @@ if (key is null)
 }
 
 // Structs and arrays are expanded in place; anything else is left as the text the reader gives us.
-// A static array writes one entry per index, hence the "#n" suffix on names.
+// A field carries a "#n" suffix only where it is one entry of a static array, which is rare; the ordinary
+// case is a plain name.
 static object? Value(object? raw)
 {
     if (raw is FScriptStruct wrapper) raw = wrapper.StructType;
     if (raw is FStructFallback strct)
-        return strct.Properties.ToDictionary(p => $"{p.Name.Text}#{p.ArrayIndex}", p => Value(p.Tag?.GenericValue));
+        return strct.Properties.ToDictionary(
+            p => p.ArrayIndex == 0 ? p.Name.Text : $"{p.Name.Text}#{p.ArrayIndex}",
+            p => Value(p.Tag?.GenericValue));
     if (raw is UScriptArray array) return array.Properties.Select(p => Value(p.GenericValue)).ToList();
     if (raw is UScriptMap map)
         return map.Properties.Select(kv => new Dictionary<string, object?>
