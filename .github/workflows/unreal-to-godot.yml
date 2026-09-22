@@ -137,7 +137,7 @@ jobs:
   # EditorScript, which cannot be run from the command line, so the import runs from an editor plugin
   # (Tools/godot_project/addons/shrek_import) in a headless editor.
   godot-project:
-    needs: export
+    needs: [export, raw]
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -148,6 +148,9 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with: { name: unreal-to-godot, path: export }
+      # What the engine could not export, for the importer to hang on the nodes.
+      - uses: actions/download-artifact@v4
+        with: { name: level-raw, path: export }
 
       - name: Assemble the project
         run: |
