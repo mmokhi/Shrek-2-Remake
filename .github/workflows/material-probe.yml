@@ -1,0 +1,79 @@
+# Answers one question before a material compiler is written: can Python read how material nodes are wired?
+# UnrealToGodot assumes not, and so converts materials at parameter level only. Run by hand, not on push.
+name: material-probe
+on: workflow_dispatch
+
+env:
+  IMAGE: ghcr.io/epicgames/unreal-engine:dev-slim-5.8.1
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 200
+    steps:
+      - name: Reclaim disk space
+        uses: jlumbroso/free-disk-space@v1.3.1
+        with: { tool-cache: true, android: true, dotnet: true, haskell: true, large-packages: true, docker-images: true, swap-storage: true }
+
+      - uses: actions/checkout@v4
+        with: { submodules: false, fetch-depth: 1 }
+
+      - name: Plugins
+        run: |
+          set -euo pipefail
+          for m in ClimbingSystem CombatSystem GameInstanceServices InventorySystem UIGoodies UnrealToGodot; do
+            git submodule update --init --force "Plugins/$m"
+          done
+          git -C Plugins/InventorySystem apply "$PWD/.github/patches/inventorysystem-reorder-ctor.patch"
+          git -C Plugins/CombatSystem apply "$PWD/.github/patches/combatsystem-notify-5.8.patch"
+          jq '.Plugins += [{"Name":"UnrealToGodot","Enabled":true}]' Shrek2Remake.uproject > p.tmp && mv p.tmp Shrek2Remake.uproject
+
+      - name: Restore derived data cache
+        uses: actions/cache@v4
+        with:
+          path: .ue-ddc
+          key: unreal-to-godot-ddc-${{ hashFiles('Content/**', 'Config/**') }}
+          restore-keys: |
+            unreal-to-godot-ddc-
+            ue-ddc-nobindless-${{ runner.os }}-
+
+      - name: Pull engine image
+        run: |
+          echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker pull -q "$IMAGE"
+
+      - name: Build editor
+        timeout-minutes: 90
+        run: |
+          set -euo pipefail
+          mkdir -p .ue-ddc out
+          sudo chown -R 1000:1000 "$PWD"
+          docker run --rm --user 1000:1000 --shm-size=2g -v "$PWD":/project -e HOME=/tmp/uehome "$IMAGE" bash -euo pipefail -c '
+            mkdir -p "$HOME"
+            /home/ue4/UnrealEngine/Engine/Build/BatchFiles/Linux/Build.sh Shrek2RemakeEditor Linux Development \
+              -Project=/project/Shrek2Remake.uproject -WaitMutex -NoUBA'
+
+      - name: Probe
+        timeout-minutes: 60
+        run: |
+          set -euo pipefail
+          trap 'sudo chown -R "$(id -u):$(id -g)" "$PWD"' EXIT
+          docker run --rm --user 1000:1000 -v "$PWD":/project -e HOME=/tmp/uehome \
+            -e UE_LocalDerivedDataCache=/project/.ue-ddc -e OUT=/project/out \
+            "$IMAGE" bash -euo pipefail -c '
+              mkdir -p "$HOME"
+              /home/ue4/UnrealEngine/Engine/Binaries/Linux/UnrealEditor-Cmd /project/Shrek2Remake.uproject \
+                -run=pythonscript -script=/project/Tools/unreal_to_godot/probe_material_graph.py \
+                -nullrhi -unattended -nosplash -nopause -stdout \
+                > /project/out/probe.log 2>&1 || true
+              grep -E "material-graph-probe:|LogPython: Error" /project/out/probe.log | tail -20 || true'
+          python3 -c '
+          import json
+          d = json.load(open("out/material_graph_probe.json"))["summary"]
+          print(d)
+          # The whole point: if no input pin ever resolves to another node, the graph is unwalkable from here.
+          raise SystemExit(0 if d["connections"] > 0 else 1)'
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: material-graph-probe, path: out/material_graph_probe.json }
