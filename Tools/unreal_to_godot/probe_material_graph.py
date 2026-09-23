@@ -42,7 +42,8 @@ PROPERTIES = ["BASE_COLOR", "METALLIC", "SPECULAR", "ROUGHNESS", "EMISSIVE_COLOR
 registry = unreal.AssetRegistryHelpers.get_asset_registry()
 registry.search_all_assets(True)
 materials = []
-for data in registry.get_assets_by_class("Material", True) or []:
+MATERIAL_CLASS = unreal.TopLevelAssetPath("/Script/Engine", "Material")  # UE5 takes a class path, not a name
+for data in registry.get_assets_by_class(MATERIAL_CLASS, True) or []:
     path = str(data.package_name)
     if path.startswith("/Game/") or path.startswith("/ClimbingSystem/") or path.startswith("/CombatSystem/"):
         materials.append(path)
