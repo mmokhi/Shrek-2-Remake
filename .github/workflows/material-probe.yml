@@ -1,7 +1,14 @@
 # Answers one question before a material compiler is written: can Python read how material nodes are wired?
-# UnrealToGodot assumes not, and so converts materials at parameter level only. Run by hand, not on push.
+# UnrealToGodot assumes not, and so converts materials at parameter level only.
+#
+# workflow_dispatch only works from the default branch, and this work lives on a feature branch, so the
+# trigger is a push of the probe itself -- which runs it exactly when it changes and never otherwise.
 name: material-probe
-on: workflow_dispatch
+on:
+  push:
+    paths:
+      - Tools/unreal_to_godot/probe_material_graph.py
+      - .github/workflows/material-probe.yml
 
 env:
   IMAGE: ghcr.io/epicgames/unreal-engine:dev-slim-5.8.1
