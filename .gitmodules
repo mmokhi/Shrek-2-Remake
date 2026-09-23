@@ -20,8 +20,3 @@
 	path = Plugins/UnrealToGodot
 	url = https://github.com/mmokhi/UnrealToGodot.git
 	branch = no-renderer-fallback
-[submodule "Tools/umap_reader/CUE4Parse"]
-	path = Tools/umap_reader/CUE4Parse
-	url = https://github.com/FabianFG/CUE4Parse.git
-	branch = master
-	shallow = true

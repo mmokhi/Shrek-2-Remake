@@ -35,8 +35,6 @@ func _import() -> void:
 	# glTF's own untextured materials. Writing every node into the level keeps them.
 	var textured := _flatten(root, root)
 
-	_attach_unreal_values(root)
-
 	var scene := PackedScene.new()
 	if scene.pack(root) != OK:
 		printerr("shrek_import: could not pack the scene")
@@ -54,105 +52,6 @@ func _import() -> void:
 	ProjectSettings.save()
 	print("shrek_import: %s built, %d top-level nodes, %d textured surfaces" % [path, root.get_child_count(), textured])
 	get_tree().quit(0)
-
-
-## Puts what the level file stores onto the nodes, verbatim, as metadata: "unreal/<PropertyName>" per object,
-## and "unreal/path" so each node says which Unreal object it came from.
-##
-## Nothing here is translated into Godot's own terms -- a collision channel stays the text Unreal wrote, it
-## does not become a collision layer. The values are carried so that nothing is lost; deciding what the port
-## should *do* with them is a separate step.
-##
-## Actors with no node of their own -- particle emitters, BSP brushes, the player starts -- get an empty
-## Node3D, so their settings arrive with everything else instead of being dropped.
-func _attach_unreal_values(root: Node) -> void:
-	var raw_text := FileAccess.get_file_as_string(EXPORT + "/level_raw.json")
-	var index_text := FileAccess.get_file_as_string(EXPORT + "/actor_index.json")
-	if raw_text.is_empty() or index_text.is_empty():
-		printerr("shrek_import: level_raw.json or actor_index.json is missing; no Unreal values attached")
-		get_tree().quit(1)
-		return
-
-	var raw: Dictionary = JSON.parse_string(raw_text)
-	var index: Array = JSON.parse_string(index_text)
-
-	# Every object in the file by its path below the level, and each actor's own components gathered once
-	# rather than searched for per actor.
-	var by_path := {}
-	var components := {}
-	for object in raw["objects"]:
-		var path := _below_level(object["path"])
-		by_path[path] = object
-		var cut := path.rfind(".")
-		if cut != -1:
-			components.get_or_add(path.substr(0, cut), []).append(object)
-
-	var nodes_by_name := {}
-	_collect(root, nodes_by_name)
-
-	var attached := 0
-	var created := 0
-	for entry in index:
-		var actor_path: String = _below_level(entry["path"])
-		if not by_path.has(actor_path):
-			continue  # the level stores nothing for it, so there is nothing to carry
-		var node: Node = nodes_by_name.get(entry["label"])
-		if node == null:
-			node = Node3D.new()
-			node.name = entry["label"]
-			root.add_child(node)
-			node.owner = root
-			created += 1
-		attached += _set_values(node, by_path[actor_path], components.get(actor_path, []))
-
-	print("shrek_import: %d values from the level file attached, %d nodes created for actors with no mesh"
-			% [attached, created])
-
-
-## The path below PersistentLevel, which is the part the engine and the file agree on.
-func _below_level(path: String) -> String:
-	var marker := "PersistentLevel."
-	var at := path.find(marker)
-	return path.substr(at + marker.length()) if at != -1 else path
-
-
-func _collect(node: Node, into: Dictionary) -> void:
-	for child in node.get_children():
-		var name := String(child.name)
-		if not into.has(name):
-			into[name] = child
-		_collect(child, into)
-
-
-## Everything the level stores for one actor, as a single "unreal" metadata entry:
-##
-##     {path, class, properties: {name: value}, components: {name: {name: value}}}
-##
-## One entry rather than one per property, because a metadata name has to be a plain identifier -- it cannot
-## carry the property's own name and its component's -- and because this keeps each component's settings
-## together, the way the level holds them.
-func _set_values(node: Node, object: Dictionary, components: Array) -> int:
-	var count := 0
-	var properties := {}
-	for property in object["properties"]:
-		properties[property["name"]] = property["value"]
-		count += 1
-
-	var by_component := {}
-	for component in components:
-		var values := {}
-		for property in component["properties"]:
-			values[property["name"]] = property["value"]
-			count += 1
-		by_component[component["name"]] = values
-
-	node.set_meta("unreal", {
-		"path": object["path"],
-		"class": object["class"],
-		"properties": properties,
-		"components": by_component,
-	})
-	return count
 
 
 ## Makes every node part of the level scene rather than of an instanced model, and reports how many surfaces

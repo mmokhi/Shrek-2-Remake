@@ -90,15 +90,6 @@ level_text = f"{OUT}/{world.get_name()}.t3d"
 save(world, level_text, run_export_task)
 summary["level_text"] = os.path.getsize(level_text) if os.path.exists(level_text) else 0
 
-# Which actor is which, decided by the engine rather than guessed later. The tool names its Godot nodes
-# after get_actor_label(), which Unreal derives when a level stores no label of its own (BP_Board_C_9
-# becomes "BP_Board"), while a file-side read of the .umap only ever sees the object name. Asking the engine
-# for both is the only way to line the two up without reimplementing that derivation.
-with open(f"{OUT}/actor_index.json", "w") as f:
-    json.dump([{"label": a.get_actor_label(), "path": a.get_path_name(), "class": a.get_class().get_name()}
-               for a in actors.get_all_level_actors()], f, indent=1, sort_keys=True)
-summary["actor_index"] = len(actors.get_all_level_actors())
-
 # The additions.
 summary["animations"] = summary["sounds"] = 0
 for package in sorted(project_dependencies([LEVEL, pawn_class.get_outer().get_name()])):
